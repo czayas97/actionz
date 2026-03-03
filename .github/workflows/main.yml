@@ -1,5 +1,4 @@
 name: vamos a correr matrix
-
 on: 
     workflow_dispatch:
         inputs:
@@ -17,10 +16,10 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-            servidor: ${{ fromJson(
+                servidor: ${{ fromJson(
                   github.event.inputs.servidor == 'ambos' 
                   && '["a","b"]' || format('["{0}"]', github.event.inputs.servidor)
-                ) }}
+                    ) }}
         environment: ${{ matrix.servidor }}
 
         steps:
