@@ -1,0 +1,42 @@
+name: vamos a correr matrix
+
+on: 
+    workflow_dispatch:
+        inputs:
+            servidor:
+               description: "Selecciona servidor destino"
+               required: true
+               type: choice
+               options:
+                   - a
+                   - b
+                   - ambos
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                servidor: ${{ fromJson(
+                  github.event.inputs.servidor == 'ambos' 
+                  && '["a","b"]' || format('["{0}"]', github.event.inputs.servidor)
+                ) }}
+        environment: ${{ matrix.servidor }}
+
+        steps:
+          - name: Checkout código
+          uses: actions/checkout@v4
+
+          - name: Mostrar contexto
+          run: | 
+             echo "Servidor seleccionado: ${{ matrix.servidor }}"
+            echo "Host: ${{ secrets.SSH_HOST }}"
+
+           - name: Confirmación
+             run: echo "Deploy completado en servidor ${{ matrix.servidor }}"
+          
+          
+        
+        
+  
+      
