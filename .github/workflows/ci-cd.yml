@@ -1,0 +1,125 @@
+name: CI-CD Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+      - testing
+      - main
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    outputs:
+      coverage: ${{ steps.coverage.outputs.coverage }}
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Ejecutar Lint
+        run: npm run lint
+
+      - name: Ejecutar Tests
+        run: npm test -- --coverage
+
+      - name: Obtener Coverage
+        id: coverage
+        run: |
+          COVERAGE=$(grep -oP 'All files[^|]*\|\s*\K[0-9.]+' coverage/lcov-report/index.html | head -1)
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+
+      - name: Validar Coverage mínimo 80%
+        run: |
+          if (( $(echo "${{ steps.coverage.outputs.coverage }} < 80" | bc -l) )); then
+            echo "Coverage menor a 80%"
+            exit 1
+          fi
+
+      - name: Build proyecto
+        run: npm run build
+
+      - name: Subir Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name }}
+
+    steps:
+      - name: Descargar Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build
+
+      - name: Determinar entorno
+        id: entorno
+        run: |
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "env=Producción" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF}" == "refs/heads/testing" ]]; then
+            echo "env=Testing" >> $GITHUB_OUTPUT
+          else
+            echo "env=Desarrollo" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy (ejemplo SSH)
+        run: |
+          echo "Deployando a ${{ steps.entorno.outputs.env }}"
+          # Aquí iría tu script real de deploy
+
+  notify:
+    needs: [ci, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Obtener email del autor
+        id: author
+        run: |
+          echo "email=$(git log -1 --pretty=format:'%ae')" >> $GITHUB_OUTPUT
+
+      - name: Crear reporte
+        id: report
+        run: |
+          echo "### 📊 Reporte de Pipeline" >> reporte.md
+          echo "" >> reporte.md
+          echo "- Rama: $GITHUB_REF_NAME" >> reporte.md
+          echo "- Autor: ${{ github.actor }}" >> reporte.md
+          echo "- Coverage: ${{ needs.ci.outputs.coverage }}%" >> reporte.md
+          echo "- Estado CI: ${{ needs.ci.result }}" >> reporte.md
+          echo "- Estado Deploy: ${{ needs.deploy.result }}" >> reporte.md
+
+      - name: Enviar Email
+        if: steps.author.outputs.email != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: |
+            Resultado Pipeline - ${{ github.ref_name }} - ${{ needs.ci.result }}
+          to: |
+            ${{ steps.author.outputs.email }},
+            equipo@tuempresa.com
+          from: CI Bot
+          body: file://reporte.md
